@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Flock ALPR Cameras &amp; the Black + Latino Population — Oakland &amp; Berkeley</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root { --ink:#1b1b1f; --muted:#6b6b73; --line:#e2e2e6; --cyan:#00b8d4; --panel:#ffffff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); }
+  #map { position: absolute; inset: 0; background: #eef1f4; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+
+  #controls { position: absolute; top: 14px; left: 14px; z-index: 1000; width: 268px; padding: 14px 16px; max-height: calc(100% - 28px); overflow:auto; }
+  #controls h1 { font-size: 15px; line-height: 1.3; margin: 0 0 2px; font-weight: 700; }
+  #controls .sub { font-size: 12px; color: var(--muted); margin: 0 0 12px; }
+  .group { border-top: 1px solid var(--line); padding-top: 11px; margin-top: 11px; }
+  .group:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+  .glabel { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 7px; font-weight: 600; }
+  .seg { display: flex; gap: 6px; }
+  .seg button { flex:1; font: inherit; font-size: 12.5px; padding: 6px 8px; border:1px solid var(--line); background:#fff; border-radius:7px; cursor:pointer; color:var(--ink); }
+  .seg button.on { background: var(--ink); color:#fff; border-color: var(--ink); }
+  .chk { display:flex; align-items:center; gap:8px; font-size:13px; padding:3px 0; cursor:pointer; }
+  .chk input { accent-color: var(--ink); width:15px; height:15px; }
+  .sliderval { font-size:12px; color:var(--muted); float:right; }
+  input[type=range]{ width:100%; accent-color: var(--ink); }
+  .legend-row { display:flex; align-items:center; gap:7px; font-size:12px; margin:3px 0; }
+  .swatch { width:16px; height:12px; border-radius:2px; border:1px solid rgba(0,0,0,.12); }
+  .count { font-size:12px; color:var(--muted); }
+
+  #sidebar { position:absolute; top:14px; right:14px; z-index:1000; width:330px; max-width: calc(100% - 28px); max-height: calc(100% - 28px); overflow:auto; padding:0; display:none; }
+  #sidebar.open { display:block; }
+  .sb-head { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; padding:14px 16px 10px; border-bottom:1px solid var(--line); }
+  .sb-head h2 { font-size:15px; margin:0; line-height:1.3; }
+  .badge { display:inline-block; font-size:11px; font-weight:600; padding:2px 8px; border-radius:999px; margin-top:6px; }
+  .badge.Oakland { background:#fde7d2; color:#9a4a06; }
+  .badge.Berkeley { background:#d9ecff; color:#0d4d8c; }
+  .sb-close { border:0; background:none; font-size:20px; line-height:1; cursor:pointer; color:var(--muted); padding:0 2px; }
+  .sb-body { padding:12px 16px 16px; }
+  .sv { width:100%; height:200px; border:0; border-radius:8px; background:#000; display:block; }
+  .kv { width:100%; font-size:13px; border-collapse:collapse; margin-top:12px; }
+  .kv td { padding:5px 0; vertical-align:top; border-top:1px solid var(--line); }
+  .kv td.k { color:var(--muted); white-space:nowrap; padding-right:12px; width:42%; }
+  .links { display:flex; gap:8px; margin-top:12px; }
+  .links a { flex:1; text-align:center; font-size:12.5px; text-decoration:none; color:var(--ink); border:1px solid var(--line); border-radius:7px; padding:7px 6px; }
+  .links a:hover { background:#f5f5f7; }
+
+  #loading { position:absolute; inset:0; z-index:2000; display:flex; align-items:center; justify-content:center; background:#eef1f4; font-size:14px; color:var(--muted); }
+  .leaflet-popup-content { font-size:13px; }
+  @media (max-width:640px){
+    #controls{ width: calc(100% - 28px); }
+    #sidebar{ width: calc(100% - 28px); }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="loading">Loading map data…</div>
+
+<div id="controls" class="card">
+  <h1>Flock ALPR cameras &amp; the Black + Latino population</h1>
+  <p class="sub">Oakland &amp; Berkeley, by census tract (ACS 2022, table B03002)</p>
+
+  <div class="group">
+    <p class="glabel">Camera layer</p>
+    <div class="seg" id="camMode">
+      <button data-mode="points" class="on">Points</button>
+      <button data-mode="heat">Heatmap (KDE)</button>
+      <button data-mode="off">Off</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <p class="glabel">Show cameras in</p>
+    <label class="chk"><input type="checkbox" id="cityOakland" checked> Oakland <span class="count" id="cntOakland"></span></label>
+    <label class="chk"><input type="checkbox" id="cityBerkeley" checked> Berkeley <span class="count" id="cntBerkeley"></span></label>
+  </div>
+
+  <div class="group">
+    <p class="glabel">Choropleth <span class="sliderval" id="choroState">on</span></p>
+    <label class="chk"><input type="checkbox" id="choroToggle" checked> Shade tracts by % Black + Latino</label>
+    <div style="margin-top:9px;">
+      <span style="font-size:12px;color:var(--muted);">Min. share to show <span class="sliderval" id="minPctVal">0%</span></span>
+      <input type="range" id="minPct" min="0" max="80" step="5" value="0">
+    </div>
+  </div>
+
+  <div class="group">
+    <p class="glabel">% Black + Latino</p>
+    <div id="legend"></div>
+  </div>
+</div>
+
+<div id="sidebar" class="card">
+  <div class="sb-head">
+    <div>
+      <h2 id="sbTitle">Camera</h2>
+      <span id="sbBadge" class="badge"></span>
+    </div>
+    <button class="sb-close" id="sbClose" aria-label="Close">&times;</button>
+  </div>
+  <div class="sb-body">
+    <iframe id="sbStreet" class="sv" referrerpolicy="no-referrer-when-downgrade" loading="lazy" allowfullscreen></iframe>
+    <table class="kv" id="sbTable"></table>
+    <div class="links">
+      <a id="sbMaps" target="_blank" rel="noopener">Open in Maps</a>
+      <a id="sbSV" target="_blank" rel="noopener">Full Street View</a>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script>
+const BREAKS = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8];
+const COLORS = ['#fcfdbf','#feca8d','#fd9668','#f1605d','#cd4071','#9e2f7f','#721f81','#440f76','#180f3e'];
+function getColor(p){
+  if (p == null || isNaN(p)) return '#d9d9d9';
+  for (let i=0;i<BREAKS.length;i++){ if (p < BREAKS[i]) return COLORS[i]; }
+  return COLORS[COLORS.length-1];
+}
+
+const map = L.map('map', { zoomControl:true, preferCanvas:true }).setView([37.823, -122.262], 12);
+L.control.zoom({ position:'bottomright' });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains:'abcd', maxZoom:19
+}).addTo(map);
+
+let tractLayer, cityLayer, camMarkers, heatLayer;
+let cameraFeatures = [];
+let camMode = 'points';
+
+function buildLegend(){
+  const el = document.getElementById('legend');
+  const labels = ['0–10%','10–20%','20–30%','30–40%','40–50%','50–60%','60–70%','70–80%','80%+'];
+  el.innerHTML = labels.map((lab,i)=>
+    `<div class="legend-row"><span class="swatch" style="background:${COLORS[i]}"></span>${lab}</div>`
+  ).join('') + `<div class="legend-row"><span class="swatch" style="background:#d9d9d9"></span>No data</div>`;
+}
+
+function tractStyle(f){
+  const p = f.properties.pct_black_latino;
+  const minPct = +document.getElementById('minPct').value / 100;
+  const shown = document.getElementById('choroToggle').checked && (p != null) && (p >= minPct);
+  return {
+    fillColor: getColor(p),
+    weight: 0.5, color:'#ffffff',
+    fillOpacity: shown ? 0.78 : 0.04,
+    opacity: shown ? 0.6 : 0.1
+  };
+}
+
+function pct(x){ return x==null||isNaN(x) ? 'No data' : Math.round(x*100)+'%'; }
+
+function streetUrl(lat, lon){
+  return `https://maps.google.com/maps?q=&layer=c&cbll=${lat},${lon}&cbp=11,0,0,0,0&output=svembed`;
+}
+
+function openCamera(props){
+  const sb = document.getElementById('sidebar');
+  const title = props.intersection || props.name || 'Flock ALPR camera';
+  document.getElementById('sbTitle').textContent = title;
+  const badge = document.getElementById('sbBadge');
+  badge.textContent = props.city || '';
+  badge.className = 'badge ' + (props.city || '');
+
+  document.getElementById('sbStreet').src = streetUrl(props.lat, props.lon);
+
+  const rows = [];
+  const add = (k,v)=>{ if (v) rows.push(`<tr><td class="k">${k}</td><td>${v}</td></tr>`); };
+  add('City', props.city);
+  add('Camera #', props.camera_number);
+  if (props.intersection) add('Intersection', props.intersection);
+  else { add('Street', props.street1); add('Cross street', props.street2); }
+  add('Direction', (!props.intersection && props.name && props.name.length <= 4) ? props.name : null);
+  add('Note', props.note);
+  add('Coordinates', props.lat.toFixed(5) + ', ' + props.lon.toFixed(5));
+  add('Source', props.source);
+  document.getElementById('sbTable').innerHTML = rows.join('');
+
+  document.getElementById('sbMaps').href = `https://www.google.com/maps/search/?api=1&query=${props.lat},${props.lon}`;
+  document.getElementById('sbSV').href = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${props.lat},${props.lon}`;
+  sb.classList.add('open');
+}
+document.getElementById('sbClose').onclick = ()=>{
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sbStreet').src = 'about:blank';
+};
+
+function activeCities(){
+  const c = [];
+  if (document.getElementById('cityOakland').checked) c.push('Oakland');
+  if (document.getElementById('cityBerkeley').checked) c.push('Berkeley');
+  return c;
+}
+
+function refreshCameras(){
+  const cities = activeCities();
+  const feats = cameraFeatures.filter(f => cities.includes(f.properties.city));
+
+  if (camMarkers){ map.removeLayer(camMarkers); camMarkers = null; }
+  if (heatLayer){ map.removeLayer(heatLayer); heatLayer = null; }
+
+  if (camMode === 'points'){
+    camMarkers = L.layerGroup();
+    feats.forEach(f=>{
+      const m = L.circleMarker([f.properties.lat, f.properties.lon], {
+        radius:5, color:'#0b3d4d', weight:1, fillColor:'#00e5ff', fillOpacity:.95
+      });
+      m.on('click', ()=> openCamera(f.properties));
+      m.bindTooltip(f.properties.intersection || f.properties.name || 'Camera', {direction:'top'});
+      camMarkers.addLayer(m);
+    });
+    camMarkers.addTo(map);
+  } else if (camMode === 'heat'){
+    const pts = feats.map(f=>[f.properties.lat, f.properties.lon, 1]);
+    heatLayer = L.heatLayer(pts, { radius:24, blur:18, minOpacity:.25, maxZoom:15,
+      gradient:{0.2:'#3b0f70',0.4:'#8c2981',0.6:'#de4968',0.8:'#fe9f6d',1.0:'#fcfdbf'} }).addTo(map);
+  }
+}
+
+function refreshChoro(){
+  if (tractLayer) tractLayer.setStyle(tractStyle);
+  const on = document.getElementById('choroToggle').checked;
+  document.getElementById('choroState').textContent = on ? 'on' : 'off';
+}
+
+Promise.all([
+  fetch('data/tracts.geojson').then(r=>r.json()),
+  fetch('data/cameras.geojson').then(r=>r.json()),
+  fetch('data/cities.geojson').then(r=>r.json())
+]).then(([tracts, cameras, cities])=>{
+  cameraFeatures = cameras.features;
+
+  tractLayer = L.geoJSON(tracts, {
+    style: tractStyle,
+    onEachFeature: (f, lyr)=>{
+      lyr.bindPopup(`<b>Tract ${f.properties.GEOID}</b><br>Black + Latino: <b>${pct(f.properties.pct_black_latino)}</b>`);
+      lyr.on('mouseover', e=> e.target.setStyle({weight:1.6, color:'#333'}));
+      lyr.on('mouseout', e=> tractLayer.resetStyle(e.target));
+    }
+  }).addTo(map);
+
+  cityLayer = L.geoJSON(cities, {
+    style: f => f.properties.role === 'border'
+      ? { color:'#111', weight:3, dashArray:'6 5', opacity:.95 }
+      : { color:'#222', weight:1.4, opacity:.8, fill:false }
+  }).addTo(map);
+
+  // counts
+  const oc = cameraFeatures.filter(f=>f.properties.city==='Oakland').length;
+  const bc = cameraFeatures.filter(f=>f.properties.city==='Berkeley').length;
+  document.getElementById('cntOakland').textContent = `(${oc})`;
+  document.getElementById('cntBerkeley').textContent = `(${bc})`;
+
+  buildLegend();
+  refreshCameras();
+  map.fitBounds(cityLayer.getBounds(), { padding:[20,20] });
+  document.getElementById('loading').style.display = 'none';
+}).catch(err=>{
+  document.getElementById('loading').textContent = 'Could not load data: ' + err;
+});
+
+// control wiring
+document.querySelectorAll('#camMode button').forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll('#camMode button').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    camMode = btn.dataset.mode;
+    refreshCameras();
+  };
+});
+document.getElementById('cityOakland').onchange = refreshCameras;
+document.getElementById('cityBerkeley').onchange = refreshCameras;
+document.getElementById('choroToggle').onchange = refreshChoro;
+document.getElementById('minPct').oninput = (e)=>{
+  document.getElementById('minPctVal').textContent = e.target.value + '%';
+  refreshChoro();
+};
+</script>
+</body>
+</html>
