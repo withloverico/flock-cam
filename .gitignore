@@ -1,0 +1,4 @@
+.venv/
+._cameras_tmp.kml
+__pycache__/
+*.pyc
